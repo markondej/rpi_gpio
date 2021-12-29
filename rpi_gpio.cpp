@@ -208,6 +208,7 @@ namespace GPIO {
 
     class AllocatedMemory {
         public:
+            AllocatedMemory() = delete;
             AllocatedMemory(unsigned size) {
                 mBoxFd = mbox_open();
                 memSize = size;
@@ -370,7 +371,7 @@ namespace GPIO {
             cbOffset++;
         }
         *pwmFifoData = 0x00000000;
-        
+
         uint32_t previous = *reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET));
         DMAController dma(allocated.GetPhysicalAddress(dmaCb));
         std::this_thread::sleep_for(std::chrono::microseconds(1));

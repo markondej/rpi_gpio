@@ -15,14 +15,19 @@ void sigIntHandler(int sigNum)
 }
 
 void IRQThread(unsigned pin, bool high, const std::function<void()> &callback) {
-    GPIO::Controller &gpio = GPIO::Controller::GetInstance();
-    while (!stop) {
-        for (auto event : gpio.GetEvents()) {
-            if ((event.number == pin) && (event.high == high)) {
-                callback();
+    try {
+        GPIO::Controller &gpio = GPIO::Controller::GetInstance();
+        while (!stop) {
+            for (auto event : gpio.GetEvents()) {
+                if ((event.number == pin) && (event.high == high)) {
+                    callback();
+                }
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    } catch (std::exception &error) {
+        std::cout << error.what() << std::endl;
+        stop = true;
     }
 }
 
@@ -41,12 +46,11 @@ int main(int argc, char** argv) {
     std::signal(SIGTSTP, sigIntHandler);
 
     std::thread irqThread(IRQThread, pin, true, [&]() {
-        std::cout << "Interrupt" << std::endl;
+        std::cout << "Rising edge detected" << std::endl;
     });
     while (!stop) {
-        std::cout << "Working" << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     irqThread.join();
-    return 0;
+    return EXIT_SUCCESS;
 }

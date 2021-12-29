@@ -116,7 +116,12 @@ int main(int argc, char** argv) {
             break;
         }
     }
-    auto read = ReadDHT22(pin);
-    std::cout << "Temperature [C]: " << read.first << std::endl << "Humidity [%]: " << read.second << std::endl;
-    return 0;
+    try {
+        auto read = ReadDHT22(pin);
+        std::cout << "Temperature [C]: " << read.first << std::endl << "Humidity [%]: " << read.second << std::endl;
+    } catch (std::exception &error) {
+        std::cout << error.what() << std::endl;
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }

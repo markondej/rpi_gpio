@@ -43,37 +43,37 @@
 #define GPIO27 27
 
 namespace GPIO {
-	struct Event {
-		unsigned long long time;
-		unsigned number;
-		bool high;
-	};
+    struct Event {
+        unsigned long long time;
+        unsigned number;
+        bool high;
+    };
 
-	enum class Mode { In, Out };
+    enum class Mode { In, Out };
 
-	enum class Resistor { PullUp, PullDown };
+    enum class Resistor { PullUp, PullDown };
 
-	class Controller
-	{
-		public:
-			virtual ~Controller();
-			Controller(const Controller &) = delete;
-			Controller(Controller &&) = delete;
-			Controller &operator=(const Controller &) = delete;
-			static Controller &GetInstance();
-			void SetMode(unsigned number, Mode mode);
-			void SetResistor(unsigned number, Resistor resistor);
-			void Set(unsigned number, bool active);
-			bool Get(unsigned number);
-			std::vector<Event> GetEvents();
-			void Reset();
-		private:
-			Controller();
-			static void IOEventThread(Controller *instance);
-			std::thread *ioEventThread;
-			std::atomic_bool stopped, reset;
-			std::vector<Event> events;
-			std::mutex copy;
-			void *io;
-	};
+    class Controller
+    {
+        public:
+            virtual ~Controller();
+            Controller(const Controller &) = delete;
+            Controller(Controller &&) = delete;
+            Controller &operator=(const Controller &) = delete;
+            static Controller &GetInstance();
+            void SetMode(unsigned number, Mode mode);
+            void SetResistor(unsigned number, Resistor resistor);
+            void Set(unsigned number, bool active);
+            bool Get(unsigned number);
+            std::vector<Event> GetEvents();
+            void Reset();
+        private:
+            Controller();
+            static void IOEventThread(Controller *instance);
+            std::thread *ioEventThread;
+            std::atomic_bool stopped, reset;
+            std::vector<Event> events;
+            std::mutex copy;
+            void *io;
+    };
 }

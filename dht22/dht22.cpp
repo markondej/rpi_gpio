@@ -5,6 +5,8 @@
 #include <chrono>
 #include <unistd.h>
 
+#define DHT22_READ_PROCESS_PRIORITY 10
+
 std::pair<double, double> ReadDHT22(unsigned pin) {
     enum class Communication {
         StartSignal,
@@ -24,10 +26,15 @@ std::pair<double, double> ReadDHT22(unsigned pin) {
     gpio.SetMode(pin, GPIO::Mode::In);
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
+    nice(-DHT22_READ_PROCESS_PRIORITY);
     gpio.SetMode(pin, GPIO::Mode::Out);
+    auto start = std::chrono::high_resolution_clock::now();
     gpio.Set(pin, false);
-    std::this_thread::sleep_for(std::chrono::microseconds(1000));
+    do {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+    } while (std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() < 1000);
     gpio.SetMode(pin, GPIO::Mode::In);
+    nice(DHT22_READ_PROCESS_PRIORITY);
 
     unsigned long long previous = 0;
     uint64_t data = 0; unsigned count = 0;

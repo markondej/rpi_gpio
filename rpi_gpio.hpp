@@ -51,7 +51,7 @@ namespace GPIO {
 
     enum class Mode { In, Out };
 
-    enum class Resistor { PullUp, PullDown };
+    enum class Resistor { PullUp, PullDown, Off };
 
     class Controller
     {

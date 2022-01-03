@@ -8,15 +8,6 @@
 #define PERIPHERALS_PHYS_BASE 0x7e000000
 #define BCM2835_PERIPHERALS_VIRT_BASE 0x20000000
 #define BCM2711_PERIPHERALS_VIRT_BASE 0xfe000000
-#define GPIO_FSEL_BASE_OFFSET 0x00200000
-#define GPIO_SET0_OFFSET 0x0020001c
-#define GPIO_CLR0_OFFSET 0x00200028
-#define GPIO_LEVEL0_OFFSET 0x00200034
-#define GPIO_PUDCTL_OFFSET 0x00200094
-#define DMA0_BASE_OFFSET 0x00007000
-#define DMA15_BASE_OFFSET 0x00e05000
-#define PWMCLK_BASE_OFFSET 0x001010a0
-#define PWM_BASE_OFFSET 0x0020c000
 
 #define BCM2835_MEM_FLAG 0x0c
 #define BCM2711_MEM_FLAG 0x04
@@ -24,9 +15,60 @@
 #define BCM2835_PLLD_FREQ 500
 #define BCM2711_PLLD_FREQ 750
 
+#define GPIO_FSEL_BASE_OFFSET 0x00200000
+#define GPIO_SET0_OFFSET 0x0020001c
+#define GPIO_CLR0_OFFSET 0x00200028
+#define GPIO_LEVEL0_OFFSET 0x00200034
+#define GPIO_PUDCTL_OFFSET 0x00200094
+#define GPIO_FSEL_INPUT 0x0
+#define GPIO_FSEL_OUTPUT 0x1
+#define GPIO_PUD_PULL_DOWN 0x0
+#define GPIO_PUD_PULL_UP 0x2
+#define GPIO_PUD_OFF 0x0
+
+#define CLK_PASSWORD (0x5a << 24)
+#define CLK_CTL_SRC_PLLA 0x04
+#define CLK_CTL_SRC_PLLC 0x05
+#define CLK_CTL_SRC_PLLD 0x06
+#define CLK_CTL_ENAB (0x01 << 4)
+#define CLK_CTL_MASH(x) ((x & 0x03) << 9)
+
+#define PWMCLK_BASE_OFFSET 0x001010a0
+#define PWM_BASE_OFFSET 0x0020c000
 #define PWM_CHANNEL_RANGE 32
-#define GPIO_BUFFER_SIZE 10240
 #define PWM_WRITES_PER_SAMPLE 1
+#define PWM_CTL_CLRF1 (0x01 << 6)
+#define PWM_CTL_USEF1 (0x01 << 5)
+#define PWM_CTL_RPTL1 (0x01 << 2)
+#define PWM_CTL_MODE1 (0x01 << 1)
+#define PWM_CTL_PWEN1 0x01
+#define PWM_STA_BERR (0x01 << 8)
+#define PWM_STA_GAPO4 (0x01 << 7)
+#define PWM_STA_GAPO3 (0x01 << 6)
+#define PWM_STA_GAPO2 (0x01 << 5)
+#define PWM_STA_GAPO1 (0x01 << 4)
+#define PWM_STA_RERR1 (0x01 << 3)
+#define PWM_STA_WERR1 (0x01 << 2)
+#define PWM_STA_EMPT1 (0x01 << 1)
+#define PWM_STA_FULL1 0x01
+#define PWM_DMAC_ENAB (0x01 << 31)
+#define PWM_DMAC_PANIC(x) ((x & 0x0f) << 8)
+#define PWM_DMAC_DREQ(x) (x & 0x0f)
+
+#define DMA0_BASE_OFFSET 0x00007000
+#define DMA15_BASE_OFFSET 0x00e05000
+#define DMA_CS_RESET (0x01 << 31)
+#define DMA_CS_PANIC_PRIORITY(x) ((x & 0x0f) << 20)
+#define DMA_CS_PRIORITY(x) ((x & 0x0f) << 16)
+#define DMA_CS_INT (0x01 << 2)
+#define DMA_CS_END (0x01 << 1)
+#define DMA_CS_ACTIVE 0x01
+#define DMA_TI_NO_WIDE_BURST (0x01 << 26)
+#define DMA_TI_PERMAP(x) ((x & 0x0f) << 16)
+#define DMA_TI_DEST_DREQ (0x01 << 6)
+#define DMA_TI_WAIT_RESP (0x01 << 3)
+
+#define GPIO_BUFFER_SIZE 10240
 #define PAGE_SIZE 4096
 
 namespace GPIO {
@@ -147,13 +189,13 @@ namespace GPIO {
             Clock() = delete;
             Clock(uintptr_t address, unsigned divisor) {
                 clock = reinterpret_cast<ClockRegisters *>(peripherals->GetVirtualAddress(address));
-                clock->ctl = (0x5a << 24) | 0x06;
-                std::this_thread::sleep_for(std::chrono::microseconds(1000));
-                clock->div = (0x5a << 24) | (0xffffff & divisor);
-                clock->ctl = (0x5a << 24) | (0x01 << 9) | (0x01 << 4) | 0x06;
+                clock->ctl = CLK_PASSWORD | CLK_CTL_SRC_PLLD;
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                clock->div = CLK_PASSWORD | (0xffffff & divisor);
+                clock->ctl = CLK_PASSWORD | CLK_CTL_MASH(0x1) | CLK_CTL_ENAB | CLK_CTL_SRC_PLLD;
             }
             virtual ~Clock() {
-                clock->ctl = (0x5a << 24) | 0x06;
+                clock->ctl = CLK_PASSWORD | CLK_CTL_SRC_PLLD;
             }
         protected:
             volatile ClockRegisters *clock;
@@ -164,13 +206,13 @@ namespace GPIO {
             PWMController() : Clock(PWMCLK_BASE_OFFSET, static_cast<unsigned>(Peripherals::GetClockFrequency() * 1000000.f * (0x01 << 12) / (PWM_WRITES_PER_SAMPLE * PWM_CHANNEL_RANGE * 1000000.f / GPIO_SAMPLE_TIME))) {
                 pwm = reinterpret_cast<PWMRegisters *>(peripherals->GetVirtualAddress(PWM_BASE_OFFSET));
                 pwm->ctl = 0x00000000;
-                std::this_thread::sleep_for(std::chrono::microseconds(1000));
-                pwm->status = 0x01fc;
-                pwm->ctl = (0x01 << 6);
-                std::this_thread::sleep_for(std::chrono::microseconds(1000));
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                pwm->status = PWM_STA_BERR | PWM_STA_GAPO1 | PWM_STA_RERR1 | PWM_STA_WERR1;
+                pwm->ctl = PWM_CTL_CLRF1;
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
                 pwm->chn1Range = PWM_CHANNEL_RANGE;
-                pwm->dmaConf = (0x01 << 31) | 0x0707;
-                pwm->ctl = (0x01 << 5) | (0x01 << 2) | 0x01;
+                pwm->dmaConf = PWM_DMAC_ENAB | PWM_DMAC_PANIC(0x7) | PWM_DMAC_DREQ(0x7);
+                pwm->ctl = PWM_CTL_USEF1 | PWM_CTL_RPTL1 | PWM_CTL_MODE1 | PWM_CTL_PWEN1;
             }
             virtual ~PWMController() {
                 pwm->ctl = 0x00000000;
@@ -187,14 +229,14 @@ namespace GPIO {
             DMAController() = delete;
             DMAController(uint32_t address) {
                 dma = reinterpret_cast<DMARegisters *>(peripherals->GetVirtualAddress((GPIO_DMA_CHANNEL < 15) ? DMA0_BASE_OFFSET + GPIO_DMA_CHANNEL * 0x100 : DMA15_BASE_OFFSET));
-                dma->ctlStatus = (0x01 << 31);
-                std::this_thread::sleep_for(std::chrono::microseconds(1000));
-                dma->ctlStatus = (0x01 << 2) | (0x01 << 1);
+                dma->ctlStatus = DMA_CS_RESET;
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                dma->ctlStatus = DMA_CS_INT | DMA_CS_END;
                 dma->cbAddress = address;
-                dma->ctlStatus = (0xff << 16) | 0x01;
+                dma->ctlStatus = DMA_CS_PANIC_PRIORITY(0xf) | DMA_CS_PRIORITY(0xf) | DMA_CS_ACTIVE;
             }
             virtual ~DMAController() {
-                dma->ctlStatus = (0x01 << 31);
+                dma->ctlStatus = DMA_CS_RESET;
             }
             inline void SetControllBlockAddress(uint32_t address) {
                 dma->cbAddress = address;
@@ -281,15 +323,15 @@ namespace GPIO {
 
     void Controller::SetMode(unsigned number, Mode mode) {
         IO &selected = Select(number, io);
-        uint8_t func;
-        switch (mode) {
-            case Mode::In:
-                func = 0x00;
-                break;
-            default:
-                func = 0x01;
-        }
         {
+            uint8_t func;
+            switch (mode) {
+                case Mode::In:
+                    func = GPIO_FSEL_INPUT;
+                    break;
+                default:
+                    func = GPIO_FSEL_OUTPUT;
+            }
             std::lock_guard<std::mutex> lock(selected.access);
             uint32_t fnsel = *selected.fnselRegister & ((0xfffffff8 << selected.fnselBit) | (0xffffffff >> (32 - selected.fnselBit)));
             *selected.fnselRegister = fnsel | (func << selected.fnselBit);
@@ -303,10 +345,13 @@ namespace GPIO {
         volatile PullUpDownRegisters *pud = reinterpret_cast<PullUpDownRegisters *>(peripherals.GetVirtualAddress(GPIO_PUDCTL_OFFSET));
         switch (resistor) {
             case Resistor::PullDown:
-                pud->ctl = 0x01;
+                pud->ctl = GPIO_PUD_PULL_DOWN;
+                break;
+            case Resistor::PullUp:
+                pud->ctl = GPIO_PUD_PULL_DOWN;
                 break;
             default:
-                pud->ctl = 0x02;
+                pud->ctl = GPIO_PUD_OFF;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(100));
         pud->clock0 = 0x01 << number;
@@ -354,7 +399,7 @@ namespace GPIO {
         PWMController pwm;
         unsigned i, cbOffset = 0;
         for (i = 0; i < GPIO_BUFFER_SIZE; i++) {
-            dmaCb[cbOffset].transferInfo = (0x01 << 26) | (0x01 << 3);
+            dmaCb[cbOffset].transferInfo = DMA_TI_NO_WIDE_BURST | DMA_TI_WAIT_RESP;
             dmaCb[cbOffset].srcAddress = PERIPHERALS_PHYS_BASE + GPIO_LEVEL0_OFFSET;
             dmaCb[cbOffset].dstAddress = allocated.GetPhysicalAddress(&levels[i]);
             dmaCb[cbOffset].transferLen = sizeof(uint32_t);
@@ -362,7 +407,7 @@ namespace GPIO {
             dmaCb[cbOffset].nextCbAddress = allocated.GetPhysicalAddress(&dmaCb[cbOffset + 1]);
             cbOffset++;
 
-            dmaCb[cbOffset].transferInfo = (0x01 << 26) | (0x05 << 16) | (0x01 << 6) | (0x01 << 3);
+            dmaCb[cbOffset].transferInfo = DMA_TI_NO_WIDE_BURST | DMA_TI_PERMAP(0x5) | DMA_TI_DEST_DREQ | DMA_TI_WAIT_RESP;
             dmaCb[cbOffset].srcAddress = allocated.GetPhysicalAddress(pwmFifoData);
             dmaCb[cbOffset].dstAddress = peripherals.GetPhysicalAddress(&pwm.GetFifoIn());
             dmaCb[cbOffset].transferLen = sizeof(uint32_t) * PWM_WRITES_PER_SAMPLE;
@@ -374,14 +419,14 @@ namespace GPIO {
 
         uint32_t previous = *reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET));
         DMAController dma(allocated.GetPhysicalAddress(dmaCb));
-        std::this_thread::sleep_for(std::chrono::microseconds(1));
+        std::this_thread::sleep_for(std::chrono::microseconds(GPIO_BUFFER_SIZE * GPIO_SAMPLE_TIME / 10));
 
         std::vector<Event> events;
         unsigned long long offset = 0;
         auto finally = [&]() {
             dmaCb[(cbOffset < 2 * GPIO_BUFFER_SIZE) ? cbOffset : 0].nextCbAddress = 0x00000000;
             while (dma.GetControllBlockAddress() != 0x00000000) {
-                std::this_thread::sleep_for(std::chrono::microseconds(1));
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             if (!events.empty()) {
                 std::lock_guard<std::mutex> lock(instance->copy);
@@ -401,7 +446,7 @@ namespace GPIO {
                 }
                 for (i = 0; i < GPIO_BUFFER_SIZE; i++) {
                     while (i == ((dma.GetControllBlockAddress() - allocated.GetPhysicalAddress(dmaCb)) / (2 * sizeof(DMAControllBlock)))) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(1));
+                        std::this_thread::sleep_for(std::chrono::microseconds(GPIO_BUFFER_SIZE * GPIO_SAMPLE_TIME / 10));
                     }
                     uint32_t current = levels[i], changes = current ^ previous;
                     unsigned long long time = offset + i * GPIO_SAMPLE_TIME;

@@ -4,6 +4,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <chrono>
+#include <algorithm>
 
 #define PERIPHERALS_PHYS_BASE 0x7e000000
 #define BCM2835_PERIPHERALS_VIRT_BASE 0x20000000
@@ -35,8 +36,6 @@
 
 #define PWMCLK_BASE_OFFSET 0x001010a0
 #define PWM_BASE_OFFSET 0x0020c000
-#define PWM_CHANNEL_RANGE 32
-#define PWM_WRITES_PER_SAMPLE 1
 #define PWM_CTL_CLRF1 (0x01 << 6)
 #define PWM_CTL_USEF1 (0x01 << 5)
 #define PWM_CTL_RPTL1 (0x01 << 2)
@@ -55,6 +54,14 @@
 #define PWM_DMAC_PANIC(x) ((x & 0x0f) << 8)
 #define PWM_DMAC_DREQ(x) (x & 0x0f)
 
+
+#ifndef PWM_CHANNEL_RANGE
+#define PWM_CHANNEL_RANGE 32
+#endif
+#ifndef PWM_WRITES_PER_SAMPLE
+#define PWM_WRITES_PER_SAMPLE 1
+#endif
+
 #define DMA0_BASE_OFFSET 0x00007000
 #define DMA15_BASE_OFFSET 0x00e05000
 #define DMA_CS_RESET (0x01 << 31)
@@ -68,7 +75,19 @@
 #define DMA_TI_DEST_DREQ (0x01 << 6)
 #define DMA_TI_WAIT_RESP (0x01 << 3)
 
-#define GPIO_BUFFER_SIZE 10240
+#ifndef DMA_CHANNEL
+#define DMA_CHANNEL 0 // 0 - 15
+#endif
+#ifndef DMA_SAMPLE_TIME
+#define DMA_SAMPLE_TIME 2 //2 us
+#endif
+#ifndef DMA_BUFFER_SIZE
+#define DMA_BUFFER_SIZE 4096
+#endif
+
+#ifndef EVENTS_LIMIT
+#define EVENTS_LIMIT 1024
+#endif
 #define PAGE_SIZE 4096
 
 namespace GPIO {
@@ -203,7 +222,7 @@ namespace GPIO {
 
     class PWMController : public Clock {
         public:
-            PWMController() : Clock(PWMCLK_BASE_OFFSET, static_cast<unsigned>(Peripherals::GetClockFrequency() * 1000000.f * (0x01 << 12) / (PWM_WRITES_PER_SAMPLE * PWM_CHANNEL_RANGE * 1000000.f / GPIO_SAMPLE_TIME))) {
+            PWMController() : Clock(PWMCLK_BASE_OFFSET, static_cast<unsigned>(Peripherals::GetClockFrequency() * 1000000.f * (0x01 << 12) / (PWM_WRITES_PER_SAMPLE * PWM_CHANNEL_RANGE * 1000000.f / DMA_SAMPLE_TIME))) {
                 pwm = reinterpret_cast<PWMRegisters *>(peripherals->GetVirtualAddress(PWM_BASE_OFFSET));
                 pwm->ctl = 0x00000000;
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -228,7 +247,7 @@ namespace GPIO {
         public:
             DMAController() = delete;
             DMAController(uint32_t address) {
-                dma = reinterpret_cast<DMARegisters *>(peripherals->GetVirtualAddress((GPIO_DMA_CHANNEL < 15) ? DMA0_BASE_OFFSET + GPIO_DMA_CHANNEL * 0x100 : DMA15_BASE_OFFSET));
+                dma = reinterpret_cast<DMARegisters *>(peripherals->GetVirtualAddress((DMA_CHANNEL < 15) ? DMA0_BASE_OFFSET + DMA_CHANNEL * 0x100 : DMA15_BASE_OFFSET));
                 dma->ctlStatus = DMA_CS_RESET;
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
                 dma->ctlStatus = DMA_CS_INT | DMA_CS_END;
@@ -297,7 +316,7 @@ namespace GPIO {
         return reinterpret_cast<IO *>(io)[number];
     }
 
-    Controller::Controller() : stopped(false), reset(false) {
+    Controller::Controller() : scheduleInterval(0), stopped(false), reset(false) {
         Peripherals &peripherals = Peripherals::GetInstance();
         IO *io = new IO[GPIO_COUNT];
         for (unsigned i = 0; i < GPIO_COUNT; i++) {
@@ -340,8 +359,9 @@ namespace GPIO {
     }
 
     void Controller::SetResistor(unsigned number, Resistor resistor) {
-        Select(number, io);
+        IO &selected = Select(number, io);
         Peripherals &peripherals = Peripherals::GetInstance();
+        std::lock_guard<std::mutex> lock(selected.access);
         volatile PullUpDownRegisters *pud = reinterpret_cast<PullUpDownRegisters *>(peripherals.GetVirtualAddress(GPIO_PUDCTL_OFFSET));
         switch (resistor) {
             case Resistor::PullDown:
@@ -361,8 +381,7 @@ namespace GPIO {
     }
 
     void Controller::Set(unsigned number, bool high) {
-        IO &selected = Select(number, io);
-        std::lock_guard<std::mutex> lock(selected.access);
+        Select(number, io);
         Peripherals &peripherals = Peripherals::GetInstance();
         volatile uint32_t *reg = high ?
             reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_SET0_OFFSET)) :
@@ -371,8 +390,7 @@ namespace GPIO {
     }
 
     bool Controller::Get(unsigned number) {
-        IO &selected = Select(number, io);
-        std::lock_guard<std::mutex> lock(selected.access);
+        Select(number, io);
         Peripherals &peripherals = Peripherals::GetInstance();
         return (bool)(*reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET)) & (0x01 << number));
     }
@@ -382,23 +400,55 @@ namespace GPIO {
     }
 
     std::vector<Event> Controller::GetEvents() {
-        std::lock_guard<std::mutex> lock(copy);
+        std::lock_guard<std::mutex> lock(eventsAccess);
         std::vector<Event> events(std::move(this->events));
         return events;
+    }
+
+    void Controller::SetSchedule(std::vector<Event> schedule, unsigned long long scheduleInterval) {
+        if (scheduleInterval && schedule.empty()) {
+            scheduleInterval = 0;
+        }
+        std::sort(schedule.begin(), schedule.end(), [](const Event &a, const Event &b) -> bool {
+            return a.time < b.time;
+        });
+        std::lock_guard<std::mutex> lock(scheduleAccess);
+        this->scheduleInterval = scheduleInterval;
+        this->schedule = schedule;
     }
 
     void Controller::IOEventThread(Controller *instance)
     {
         Peripherals &peripherals = Peripherals::GetInstance();
-        AllocatedMemory allocated(2 * GPIO_BUFFER_SIZE  * sizeof(DMAControllBlock) + GPIO_BUFFER_SIZE * sizeof(uint32_t) + sizeof(uint32_t));
-
-        volatile DMAControllBlock *dmaCb = reinterpret_cast<DMAControllBlock *>(allocated.GetBaseAddress());
-        volatile uint32_t *levels = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(dmaCb) + 2 * GPIO_BUFFER_SIZE * sizeof(DMAControllBlock));
-        volatile uint32_t *pwmFifoData = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(levels) + sizeof(uint32_t) * GPIO_BUFFER_SIZE);
+        AllocatedMemory allocated(4 * DMA_BUFFER_SIZE  * sizeof(DMAControllBlock) + 3 * DMA_BUFFER_SIZE * sizeof(uint32_t) + sizeof(uint32_t));
 
         PWMController pwm;
         unsigned i, cbOffset = 0;
-        for (i = 0; i < GPIO_BUFFER_SIZE; i++) {
+
+        volatile DMAControllBlock *dmaCb = reinterpret_cast<DMAControllBlock *>(allocated.GetBaseAddress());
+        volatile uint32_t *levels = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(dmaCb) + 4 * DMA_BUFFER_SIZE * sizeof(DMAControllBlock));
+        volatile uint32_t *set = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(levels) + sizeof(uint32_t) * DMA_BUFFER_SIZE);
+        volatile uint32_t *clr = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(set) + sizeof(uint32_t) * DMA_BUFFER_SIZE);
+        volatile uint32_t *pwmFifoData = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(clr) + sizeof(uint32_t) * DMA_BUFFER_SIZE);
+        for (i = 0; i < DMA_BUFFER_SIZE; i++) {
+            set[i] = 0x00000000; clr[i] = 0x00000000;
+
+            dmaCb[cbOffset].transferInfo = DMA_TI_NO_WIDE_BURST | DMA_TI_WAIT_RESP;
+            dmaCb[cbOffset].srcAddress = allocated.GetPhysicalAddress(&clr[i]);
+            dmaCb[cbOffset].dstAddress = PERIPHERALS_PHYS_BASE + GPIO_CLR0_OFFSET;
+            dmaCb[cbOffset].transferLen = sizeof(uint32_t);
+            dmaCb[cbOffset].stride = 0;
+            dmaCb[cbOffset].nextCbAddress = allocated.GetPhysicalAddress(&dmaCb[cbOffset + 1]);
+            cbOffset++;
+
+            dmaCb[cbOffset].transferInfo = DMA_TI_NO_WIDE_BURST | DMA_TI_WAIT_RESP;
+            dmaCb[cbOffset].srcAddress = allocated.GetPhysicalAddress(&set[i]);
+            dmaCb[cbOffset].dstAddress = PERIPHERALS_PHYS_BASE + GPIO_SET0_OFFSET;
+            dmaCb[cbOffset].transferLen = sizeof(uint32_t);
+            dmaCb[cbOffset].stride = 0;
+            dmaCb[cbOffset].nextCbAddress = allocated.GetPhysicalAddress(&dmaCb[cbOffset + 1]);
+            cbOffset++;
+
             dmaCb[cbOffset].transferInfo = DMA_TI_NO_WIDE_BURST | DMA_TI_WAIT_RESP;
             dmaCb[cbOffset].srcAddress = PERIPHERALS_PHYS_BASE + GPIO_LEVEL0_OFFSET;
             dmaCb[cbOffset].dstAddress = allocated.GetPhysicalAddress(&levels[i]);
@@ -412,44 +462,76 @@ namespace GPIO {
             dmaCb[cbOffset].dstAddress = peripherals.GetPhysicalAddress(&pwm.GetFifoIn());
             dmaCb[cbOffset].transferLen = sizeof(uint32_t) * PWM_WRITES_PER_SAMPLE;
             dmaCb[cbOffset].stride = 0;
-            dmaCb[cbOffset].nextCbAddress = allocated.GetPhysicalAddress((i < GPIO_BUFFER_SIZE - 1) ? &dmaCb[cbOffset + 1] : dmaCb);
+            dmaCb[cbOffset].nextCbAddress = allocated.GetPhysicalAddress((i < DMA_BUFFER_SIZE - 1) ? &dmaCb[cbOffset + 1] : dmaCb);
             cbOffset++;
         }
         *pwmFifoData = 0x00000000;
 
+        std::vector<Event> schedule;
+        unsigned long long scheduleEnd;
+        {
+            std::lock_guard<std::mutex> lock(instance->scheduleAccess);
+            scheduleEnd = instance->scheduleInterval;
+            schedule = instance->schedule;
+        }
+
         uint32_t previous = *reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET));
         DMAController dma(allocated.GetPhysicalAddress(dmaCb));
-        std::this_thread::sleep_for(std::chrono::microseconds(GPIO_BUFFER_SIZE * GPIO_SAMPLE_TIME / 10));
+        std::this_thread::sleep_for(std::chrono::microseconds(DMA_BUFFER_SIZE * DMA_SAMPLE_TIME / 10));
 
         std::vector<Event> events;
-        unsigned long long offset = 0;
+        unsigned long long timeOffset = 0;
         auto finally = [&]() {
-            dmaCb[(cbOffset < 2 * GPIO_BUFFER_SIZE) ? cbOffset : 0].nextCbAddress = 0x00000000;
+            dmaCb[(cbOffset < 4 * DMA_BUFFER_SIZE) ? cbOffset : 0].nextCbAddress = 0x00000000;
             while (dma.GetControllBlockAddress() != 0x00000000) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             if (!events.empty()) {
-                std::lock_guard<std::mutex> lock(instance->copy);
+                std::lock_guard<std::mutex> lock(instance->eventsAccess);
                 instance->events.insert(instance->events.end(), events.begin(), events.end());
             }
             instance->stopped = true;
+        };
+        auto getScheduled = [&](unsigned long long time) -> std::pair<uint32_t, uint32_t> {
+            uint32_t set = 0x00000000, clr = 0x00000000;
+            auto event = schedule.begin();
+            while (!schedule.empty() && (event->time <= time)) {
+                if (event->high) {
+                    set = set | (0x01 << event->number);
+                } else {
+                    clr = clr | (0x01 << event->number);
+                }
+                event = schedule.erase(event);
+            }
+            return { set, clr };
         };
         try {
             while (!instance->stopped) {
                 cbOffset = 0;
                 if (instance->reset) {
                     instance->reset = false;
-                    offset = 0;
+                    timeOffset = 0;
                     events.clear();
-                    std::lock_guard<std::mutex> lock(instance->copy);
-                    instance->events.clear();
-                }
-                for (i = 0; i < GPIO_BUFFER_SIZE; i++) {
-                    while (i == ((dma.GetControllBlockAddress() - allocated.GetPhysicalAddress(dmaCb)) / (2 * sizeof(DMAControllBlock)))) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(GPIO_BUFFER_SIZE * GPIO_SAMPLE_TIME / 10));
+                    {
+                        std::lock_guard<std::mutex> lock(instance->eventsAccess);
+                        instance->events.clear();
                     }
+                    scheduleEnd = 0;
+                    schedule.clear();
+                    {
+                        std::lock_guard<std::mutex> lock(instance->eventsAccess);
+                        instance->scheduleInterval = 0;
+                        instance->schedule.clear();
+                    }
+                }
+                bool enableSchedule = true;
+                for (i = 0; i < DMA_BUFFER_SIZE; i++) {
+                    while (i == ((dma.GetControllBlockAddress() - allocated.GetPhysicalAddress(dmaCb)) / (4 * sizeof(DMAControllBlock)))) {
+						std::this_thread::sleep_for(std::chrono::microseconds(DMA_BUFFER_SIZE * DMA_SAMPLE_TIME / 10));
+                    }
+                    unsigned long long time = timeOffset + i * DMA_SAMPLE_TIME;
+
                     uint32_t current = levels[i], changes = current ^ previous;
-                    unsigned long long time = offset + i * GPIO_SAMPLE_TIME;
                     if (changes) {
                         for (unsigned number = 0; number < GPIO_COUNT; number++) {
                             if (changes & (0x01 << number)) {
@@ -458,12 +540,38 @@ namespace GPIO {
                         }
                         previous = current;
                     }
-                    cbOffset += 2;
+
+                    std::pair<uint32_t, uint32_t> scheduled = getScheduled(time), initial = { 0x00000000, 0x00000000 };
+                    if (schedule.empty() && (scheduleEnd <= time) && enableSchedule) {
+                        {
+                            std::lock_guard<std::mutex> lock(instance->scheduleAccess);
+                            scheduleEnd = instance->scheduleInterval + time;
+                            schedule = instance->schedule;
+                            if (!instance->scheduleInterval) {
+                                instance->scheduleInterval = 0;
+                                instance->schedule.clear();
+                            }
+                        }
+                        for (auto &event : schedule) {
+                            event.time += time;
+                        }
+                        if (!schedule.empty()) {
+                            initial = getScheduled(time);
+                        } else {
+                            enableSchedule = false;
+                        }
+                    }
+                    set[i] = scheduled.first | initial.first;
+                    clr[i] = scheduled.second | initial.second;
+
+                    cbOffset += 4;
                 }
-                offset += GPIO_BUFFER_SIZE * GPIO_SAMPLE_TIME;
+                timeOffset += DMA_BUFFER_SIZE * DMA_SAMPLE_TIME;
                 if (!events.empty() && !instance->reset) {
-                    std::lock_guard<std::mutex> lock(instance->copy);
-                    instance->events.insert(instance->events.end(), events.begin(), events.end());
+                    std::lock_guard<std::mutex> lock(instance->eventsAccess);
+                    if (instance->events.size() < EVENTS_LIMIT) {
+                        instance->events.insert(instance->events.end(), events.begin(), std::min(events.end(), events.begin() + (EVENTS_LIMIT - instance->events.size())));
+                    }
                 }
                 events.clear();
             }

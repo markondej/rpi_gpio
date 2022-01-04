@@ -7,11 +7,11 @@ In order to achieve time-accurate GPIO level change informations built-in periph
 
 ## Examples
 
-Four example programs are supplied: simple logic analyzer, RC servomotor controller, IRQ demo, and DHT22 temperature and humidity sensor client application.
+Four example programs are supplied: simple logic analyzer, RC servo controller, IRQ demo, and DHT22 temperature and humidity sensor client application.
 
 ### DHT22 client
 
-For DHT22 no external pull-up resistor is required, simply connect VCC to PIN 1, GND to GND, and DATA to any available Raspberry Pi's GPIO. To install and run client application please follow these commands in terminal (use -p to define used GPIO number):
+For DHT22 no external pull-up resistor is required, simply connect VCC to 3.3V (pin 1), GND to GND (pin 6), and DATA to any available Raspberry Pi's GPIO (eg. GPIO 4 - pin 7). To install and run client application please follow these commands in terminal (use -p to define used GPIO number):
 ```
 git clone https://github.com/markondej/rpi_gpio
 cd rpi_gpio/dht22
@@ -19,9 +19,9 @@ make
 sudo ./dht22 -p 4
 ```
 
-### RC servomotor control
+### RC servo control
 
-Connect RC servomotor to Raspberry Pi: VCC to +5V, GNB to GNB, signal to GPIO4. Then follow these commands in terminal (use -p to define used GPIO number):
+Connect RC servo to Raspberry Pi: VCC to +5V (pin 2), GNB to GNB (pin 6), signal to GPIO4 (pin 7). Then follow these commands in terminal (use -p to define used GPIO number):
 ```
 git clone https://github.com/markondej/rpi_gpio
 cd rpi_gpio/servo_ctrl

@@ -5,12 +5,6 @@
 #include <mutex>
 #include <atomic>
 
-#ifndef GPIO_DMA_CHANNEL
-#define GPIO_DMA_CHANNEL 0 // 0 - 15
-#endif
-#ifndef GPIO_SAMPLE_TIME
-#define GPIO_SAMPLE_TIME 1 //1 us
-#endif
 #define GPIO_COUNT 28
 
 #define GPIO0 0
@@ -66,14 +60,17 @@ namespace GPIO {
             void Set(unsigned number, bool active);
             bool Get(unsigned number);
             std::vector<Event> GetEvents();
+            void SetSchedule(std::vector<Event> schedule, unsigned long long scheduleInterval = 0);
             void Reset();
         private:
             Controller();
             static void IOEventThread(Controller *instance);
             std::thread *ioEventThread;
+            std::mutex eventsAccess, scheduleAccess;
+            unsigned long long scheduleInterval;
             std::atomic_bool stopped, reset;
+            std::vector<Event> schedule;
             std::vector<Event> events;
-            std::mutex copy;
             void *io;
     };
 }

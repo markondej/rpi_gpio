@@ -96,8 +96,12 @@ std::pair<double, double> ReadDHT22(unsigned pin) {
         }
     }
 
+    if (!count) {
+        throw std::runtime_error("No signal received");
+    }
+
     if (count < 40) {
-        throw std::runtime_error("Communication error");
+        throw std::runtime_error("Corrupted data received");
     }
 
     if ((data & 0xff) != ((((data >> 32) & 0xff) + ((data >> 24) & 0xff) + ((data >> 16) & 0xff) + ((data >> 8) & 0xff)) & 0xff)) {

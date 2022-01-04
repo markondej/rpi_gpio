@@ -1,6 +1,11 @@
 #include "../rpi_gpio.hpp"
 #include <iostream>
+#include <csignal>
 #include <unistd.h>
+
+void sigIntHandler(int sigNum)
+{
+}
 
 int main(int argc, char** argv) {
     unsigned pin = GPIO4;
@@ -12,6 +17,10 @@ int main(int argc, char** argv) {
             break;
         }
     }
+
+    std::signal(SIGINT, sigIntHandler);
+    std::signal(SIGTSTP, sigIntHandler);
+
     try {
         GPIO::Controller &gpio = GPIO::Controller::GetInstance();
         gpio.SetMode(pin, GPIO::Mode::Out);

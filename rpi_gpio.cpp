@@ -54,7 +54,6 @@
 #define PWM_DMAC_PANIC(x) ((x & 0x0f) << 8)
 #define PWM_DMAC_DREQ(x) (x & 0x0f)
 
-
 #ifndef PWM_CHANNEL_RANGE
 #define PWM_CHANNEL_RANGE 32
 #endif
@@ -467,20 +466,13 @@ namespace GPIO {
         }
         *pwmFifoData = 0x00000000;
 
-        std::vector<Event> schedule;
-        unsigned long long scheduleEnd;
-        {
-            std::lock_guard<std::mutex> lock(instance->scheduleAccess);
-            scheduleEnd = instance->scheduleInterval;
-            schedule = instance->schedule;
-        }
-
         uint32_t previous = *reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET));
         DMAController dma(allocated.GetPhysicalAddress(dmaCb));
         std::this_thread::sleep_for(std::chrono::microseconds(DMA_BUFFER_SIZE * DMA_SAMPLE_TIME / 10));
 
         std::vector<Event> events;
-        unsigned long long timeOffset = 0;
+        std::vector<Event> schedule, cycle;
+        unsigned long long timeOffset = 0, scheduleInterval = 0, cycleEnd = 0;
         auto finally = [&]() {
             dmaCb[(cbOffset < 4 * DMA_BUFFER_SIZE) ? cbOffset : 0].nextCbAddress = 0x00000000;
             while (dma.GetControllBlockAddress() != 0x00000000) {
@@ -494,14 +486,14 @@ namespace GPIO {
         };
         auto getScheduled = [&](unsigned long long time) -> std::pair<uint32_t, uint32_t> {
             uint32_t set = 0x00000000, clr = 0x00000000;
-            auto event = schedule.begin();
-            while (!schedule.empty() && (event->time <= time)) {
+            auto event = cycle.begin();
+            while (!cycle.empty() && (event->time <= time)) {
                 if (event->high) {
                     set = set | (0x01 << event->number);
                 } else {
                     clr = clr | (0x01 << event->number);
                 }
-                event = schedule.erase(event);
+                event = cycle.erase(event);
             }
             return { set, clr };
         };
@@ -510,24 +502,28 @@ namespace GPIO {
                 cbOffset = 0;
                 if (instance->reset) {
                     instance->reset = false;
+                    for (auto &event : cycle) {
+                        event.time -= timeOffset;
+                    }
+                    cycleEnd -= timeOffset;
                     timeOffset = 0;
                     events.clear();
                     {
                         std::lock_guard<std::mutex> lock(instance->eventsAccess);
                         instance->events.clear();
                     }
-                    scheduleEnd = 0;
-                    schedule.clear();
-                    {
-                        std::lock_guard<std::mutex> lock(instance->eventsAccess);
+                }
+                {
+                    std::lock_guard<std::mutex> lock(instance->scheduleAccess);
+                    if (!instance->schedule.empty()) {
+                        scheduleInterval = instance->scheduleInterval;
+                        schedule = std::move(instance->schedule);
                         instance->scheduleInterval = 0;
-                        instance->schedule.clear();
                     }
                 }
-                bool enableSchedule = true;
                 for (i = 0; i < DMA_BUFFER_SIZE; i++) {
                     while (i == ((dma.GetControllBlockAddress() - allocated.GetPhysicalAddress(dmaCb)) / (4 * sizeof(DMAControllBlock)))) {
-						std::this_thread::sleep_for(std::chrono::microseconds(DMA_BUFFER_SIZE * DMA_SAMPLE_TIME / 10));
+                        std::this_thread::sleep_for(std::chrono::microseconds(DMA_BUFFER_SIZE * DMA_SAMPLE_TIME / 10));
                     }
                     unsigned long long time = timeOffset + i * DMA_SAMPLE_TIME;
 
@@ -542,24 +538,17 @@ namespace GPIO {
                     }
 
                     std::pair<uint32_t, uint32_t> scheduled = getScheduled(time), initial = { 0x00000000, 0x00000000 };
-                    if (schedule.empty() && (scheduleEnd <= time) && enableSchedule) {
-                        {
-                            std::lock_guard<std::mutex> lock(instance->scheduleAccess);
-                            scheduleEnd = instance->scheduleInterval + time;
-                            schedule = instance->schedule;
-                            if (!instance->scheduleInterval) {
-                                instance->scheduleInterval = 0;
-                                instance->schedule.clear();
-                            }
+                    if (cycle.empty() && (cycleEnd <= time) && !schedule.empty()) {
+                        cycleEnd = scheduleInterval + time;
+                        cycle = schedule;
+                        if (!scheduleInterval) {
+                            scheduleInterval = 0;
+                            schedule.clear();
                         }
-                        for (auto &event : schedule) {
+                        for (auto &event : cycle) {
                             event.time += time;
                         }
-                        if (!schedule.empty()) {
-                            initial = getScheduled(time);
-                        } else {
-                            enableSchedule = false;
-                        }
+                        initial = getScheduled(time);
                     }
                     set[i] = scheduled.first | initial.first;
                     clr[i] = scheduled.second | initial.second;

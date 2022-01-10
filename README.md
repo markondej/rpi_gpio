@@ -7,7 +7,7 @@ In order to achieve time-accurate GPIO level change informations built-in periph
 
 ## Supported functionalities
 
-### GPIO time non-crucial operations
+### GPIO non time-crucial operations
 
 For simple GPIO operations like setting, reading values, see example code below:
 

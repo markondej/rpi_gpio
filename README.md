@@ -50,6 +50,7 @@ for (auto event : gpio.GetEvents()) {
        if (!event.high && (event.time - lastChange == 1000)) {
            // falling edge after 1000us of high level on GPIO 17 detected
        }
+       lastChange = event.time;
     }
 }
 ```

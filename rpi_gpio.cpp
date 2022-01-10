@@ -422,14 +422,14 @@ namespace GPIO {
         AllocatedMemory allocated(4 * DMA_BUFFER_SIZE  * sizeof(DMAControllBlock) + 3 * DMA_BUFFER_SIZE * sizeof(uint32_t) + sizeof(uint32_t));
 
         PWMController pwm;
-        unsigned i, cbOffset = 0;
+        unsigned cbOffset = 0;
 
         volatile DMAControllBlock *dmaCb = reinterpret_cast<DMAControllBlock *>(allocated.GetBaseAddress());
         volatile uint32_t *levels = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(dmaCb) + 4 * DMA_BUFFER_SIZE * sizeof(DMAControllBlock));
         volatile uint32_t *set = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(levels) + sizeof(uint32_t) * DMA_BUFFER_SIZE);
         volatile uint32_t *clr = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(set) + sizeof(uint32_t) * DMA_BUFFER_SIZE);
         volatile uint32_t *pwmFifoData = reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(clr) + sizeof(uint32_t) * DMA_BUFFER_SIZE);
-        for (i = 0; i < DMA_BUFFER_SIZE; i++) {
+        for (unsigned i = 0; i < DMA_BUFFER_SIZE; i++) {
             set[i] = 0x00000000; clr[i] = 0x00000000;
 
             dmaCb[cbOffset].transferInfo = DMA_TI_NO_WIDE_BURST | DMA_TI_WAIT_RESP;
@@ -521,7 +521,7 @@ namespace GPIO {
                         instance->scheduleInterval = 0;
                     }
                 }
-                for (i = 0; i < DMA_BUFFER_SIZE; i++) {
+                for (unsigned i = 0; i < DMA_BUFFER_SIZE; i++) {
                     while (i == ((dma.GetControllBlockAddress() - allocated.GetPhysicalAddress(dmaCb)) / (4 * sizeof(DMAControllBlock)))) {
                         std::this_thread::sleep_for(std::chrono::microseconds(DMA_BUFFER_SIZE * DMA_SAMPLE_TIME / 10));
                     }

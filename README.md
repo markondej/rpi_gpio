@@ -61,7 +61,7 @@ Four example programs are supplied: simple logic analyzer, RC servo controller, 
 
 ### DHT22 client
 
-For DHT22 no external pull-up resistor is required, simply connect VCC to 3.3V (pin 1), GND to GND (pin 6), and DATA to any available Raspberry Pi's GPIO (eg. GPIO 4 - pin 7). To install and run client application please follow these commands in terminal (use -p to define used GPIO number):
+For DHT22 no external pull-up resistor is required, simply connect VCC to +3.3V (pin 1), GND to GND (pin 6), and DATA to any available Raspberry Pi's GPIO (eg. GPIO 4 - pin 7). To install and run client application please follow these commands in terminal (use -p to define used GPIO number):
 ```
 git clone https://github.com/markondej/rpi_gpio
 cd rpi_gpio/dht22

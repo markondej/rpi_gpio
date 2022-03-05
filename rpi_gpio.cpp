@@ -367,7 +367,7 @@ namespace GPIO {
                 pud->ctl = GPIO_PUD_PULL_DOWN;
                 break;
             case Resistor::PullUp:
-                pud->ctl = GPIO_PUD_PULL_DOWN;
+                pud->ctl = GPIO_PUD_PULL_UP;
                 break;
             default:
                 pud->ctl = GPIO_PUD_OFF;

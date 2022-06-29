@@ -470,6 +470,10 @@ namespace GPIO {
             std::vector<Event> events;
             events.reserve(DMA_BUFFER_SIZE);
             std::vector<Event> schedule, cycle;
+
+            uint32_t previous = *reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET));
+            DMAController dma(allocated.GetPhysicalAddress(dmaCb));
+
             unsigned long long timeOffset = 0, scheduleInterval = 0, cycleEnd = 0;
             auto finally = [&]() {
                 dmaCb[(cbOffset < 4 * DMA_BUFFER_SIZE) ? cbOffset : 0].nextCbAddress = 0x00000000;
@@ -496,8 +500,6 @@ namespace GPIO {
                 return { set, clr };
             };
 
-            uint32_t previous = *reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET));
-            DMAController dma(allocated.GetPhysicalAddress(dmaCb));
             std::this_thread::sleep_for(std::chrono::microseconds(DMA_BUFFER_SIZE * DMA_SAMPLE_TIME / 10));
 
             try {

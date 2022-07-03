@@ -1,7 +1,7 @@
 FLAGS = -Wall -O3 -std=c++11
 
 all: irq_demo.o mailbox.o rpi_gpio.o
-	g++ -L/opt/vc/lib -lpthread -lbcm_host -o irq_demo irq_demo.o mailbox.o rpi_gpio.o
+	g++ -o irq_demo irq_demo.o mailbox.o rpi_gpio.o -L/opt/vc/lib -lpthread -lbcm_host
 
 mailbox.o: ../mailbox.c ../mailbox.h
 	g++ $(FLAGS) -c ../mailbox.c

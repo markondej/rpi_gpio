@@ -9,7 +9,7 @@ for line in sys.stdin:
     gpio.set(4, i);
     if i != 0:
         i = 0;
-    else
+    else:
         i = 1;
     if 'exit' == line.rstrip():
         break

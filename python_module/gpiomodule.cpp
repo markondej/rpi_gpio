@@ -69,19 +69,64 @@ static PyObject *GPIO_get(PyObject *self, PyObject *args) {
     return Py_BuildValue("i", GPIO::Controller::GetInstance().Get(pin) ? 1 : 0);
 }
 
-/*static PyObject *GPIO_set_schedule(PyObject *self, PyObject *args) {
-    int pin, interval;
+static PyObject *GPIO_set_schedule(PyObject *self, PyObject *args) {
+    int interval;
     PyObject *schedule;
-    if (!PyArg_ParseTuple(args, "iOi", &pin, schedule, &interval)) {
+    if (!PyArg_ParseTuple(args, "Oi", &schedule, &interval)) {
         return NULL;
     }
 
+    std::vector<GPIO::Event> events;
+    try {
+        PyObject *eventIter = PyObject_GetIter(schedule);
+        if (eventIter) {
+            while (true) {
+                PyObject *element = PyIter_Next(eventIter);
+                if (!element) {
+                    break;
+                }
+                PyObject *propIter = PyObject_GetIter(element);
+                if (!propIter) {
+                    throw std::exception();
+                }
+                std::size_t propNum = 0;
+                GPIO::Event current = { 0, 0, false };
+                while (true) {
+                    PyObject *prop = PyIter_Next(propIter);
+                    if (!propIter) {
+                        if (!propNum) {
+                            break;
+                        }
+                        throw std::exception();
+                    }
+                    if (!PyLong_Check(prop)) {
+                        throw std::exception();
+                    }
+                    switch (propNum) {
+                    case 2:
+                        current.high = PyLong_AsLong(prop);
+                        events.push_back(current);
+                        break;
+                    case 1:
+                        current.number = PyLong_AsLong(prop);
+                        break;
+                    default:
+                        current.time = PyLong_AsLongLong(prop);
+                        break;
+                    }
+                    propNum = (propNum < 2) ? propNum + 1 : 0;
+                }
+            }
+        }
+    } catch (...) {
+        PyErr_SetString(GPIOError, "Wrong schedule format");
+        return NULL;
+    }
 
-
-    GPIO::Controller::GetInstance().Set(pin, active);
+    GPIO::Controller::GetInstance().SetSchedule(events, interval);
 
     Py_RETURN_NONE;
-}*/
+}
 
 static PyObject *GPIO_get_events(PyObject *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "")) {
@@ -111,6 +156,7 @@ static PyMethodDef GPIOMethods[] = {
     { "set",  GPIO_set, METH_VARARGS, "Sets GPIO state" },
     { "get",  GPIO_get, METH_VARARGS, "Returns GPIO state" },
     { "get_events",  GPIO_get_events, METH_VARARGS, "Retruns registered GPIO state" },
+    { "set_schedule",  GPIO_set_schedule, METH_VARARGS, "Sets GPIO event schedule" },
     {NULL, NULL, 0, NULL}
 };
 

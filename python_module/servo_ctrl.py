@@ -1,15 +1,19 @@
 import gpio;
 import sys;
 
-gpio.set_mode(4, 0);
-gpio.set(4, 1);
+pin = 4;
+schedule = [[0, pin, 1], [1000, pin, 0]];
 
-i = 0;
+gpio.set_mode(pin, 0);
+gpio.set_schedule(schedule, 20000);
+
+print("Servo angle (0-180):");
 for line in sys.stdin:
-    gpio.set(4, i);
-    if i != 0:
-        i = 0;
-    else:
-        i = 1;
-    if 'exit' == line.rstrip():
-        break
+    angle = int(line.rstrip());
+    if angle < 0:
+        angle = 0;
+    if angle > 180:
+        angle = 180;
+    schedule[1][0] = 1000 + angle * 1000 / 180;
+    print(schedule);
+    gpio.set_schedule(schedule, 20000);

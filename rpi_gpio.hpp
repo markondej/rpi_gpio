@@ -2,8 +2,8 @@
 
 #include <vector>
 #include <thread>
-#include <mutex>
 #include <atomic>
+#include <mutex>
 
 #define GPIO_COUNT 28
 
@@ -60,17 +60,16 @@ namespace GPIO {
             void Set(unsigned number, bool active);
             bool Get(unsigned number);
             std::vector<Event> GetEvents();
-            void SetSchedule(std::vector<Event> schedule, unsigned long long scheduleInterval = 0);
+            void SetSchedule(std::vector<Event> events, unsigned long long interval = 0);
             void Reset();
         private:
             Controller();
-            static void IOEventThread(Controller *instance);
-            std::thread *ioEventThread;
-            std::mutex eventsAccess, scheduleAccess;
-            unsigned long long scheduleInterval;
-            std::atomic_bool stopped, reset;
-            std::vector<Event> schedule;
+            static void EventThread(Controller *instance);
+            std::thread *eventThread;
+            std::atomic_bool enabled, reset;
             std::vector<Event> events;
+            std::mutex eventsAccess;
+            std::atomic<std::pair<std::vector<Event>, unsigned long long> *> schedule;
             void *io;
     };
 }

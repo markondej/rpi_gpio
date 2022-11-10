@@ -65,7 +65,7 @@ namespace GPIO {
         private:
             Controller();
             static void EventThread(Controller *instance);
-            std::thread *eventThread;
+            std::thread eventThread;
             std::atomic_bool enabled, reset;
             std::vector<Event> events;
             std::mutex eventsAccess;

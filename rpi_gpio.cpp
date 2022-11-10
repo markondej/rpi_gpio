@@ -324,13 +324,17 @@ namespace GPIO {
             io[i].mode = Mode::Out;
         }
         this->io = reinterpret_cast<void *>(io);
-        eventThread = new std::thread(EventThread, this);
+        eventThread = std::thread(EventThread, this);
     }
 
     Controller::~Controller() {
-        enabled.store(false);
-        eventThread->join();
-        delete eventThread;
+        if (enabled.exchange(false) && eventThread.joinable()) {
+            eventThread.join();
+        }
+        auto current = schedule.load(std::memory_order_consume);
+        if (current != nullptr) {
+            delete current;
+        }
         delete [] reinterpret_cast<IO *>(io);
     }
 
@@ -404,9 +408,6 @@ namespace GPIO {
     }
 
     void Controller::SetSchedule(std::vector<Event> events, unsigned long long interval) {
-        if (!enabled.load()) {
-            return;
-        }
         if (interval && events.empty()) {
             interval = 0;
         }
@@ -575,12 +576,6 @@ namespace GPIO {
                 throw;
             }
             finally();
-        } catch (...) {
-            instance->enabled.store(false);
-        }
-        auto schedule = instance->schedule.exchange(nullptr);
-        if (schedule != nullptr) {
-            delete schedule;
-        }
+        } catch (...) { }
     }
 }

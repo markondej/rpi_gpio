@@ -331,9 +331,9 @@ namespace GPIO {
         if (enabled.exchange(false) && eventThread.joinable()) {
             eventThread.join();
         }
-        auto current = schedule.load(std::memory_order_consume);
-        if (current != nullptr) {
-            delete current;
+        auto schedule = this->schedule.load(std::memory_order_consume);
+        if (schedule != nullptr) {
+            delete schedule;
         }
         delete [] reinterpret_cast<IO *>(io);
     }
@@ -414,9 +414,9 @@ namespace GPIO {
         std::sort(events.begin(), events.end(), [](const Event &a, const Event &b) -> bool {
             return a.time < b.time;
         });
-        auto previous = schedule.exchange(new std::pair<std::vector<Event>, unsigned long long>(events, interval));
-        if (previous != nullptr) {
-            delete previous;
+        auto schedule = this->schedule.exchange(new std::pair<std::vector<Event>, unsigned long long>(events, interval));
+        if (schedule != nullptr) {
+            delete schedule;
         }
     }
 

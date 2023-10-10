@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     }
 
     std::signal(SIGINT, sigIntHandler);
-    std::signal(SIGTSTP, sigIntHandler);
+    std::signal(SIGTERM, sigIntHandler);
 
     std::thread irqThread(IRQThread, pin, true, [&]() {
         std::cout << "Rising edge detected" << std::endl;

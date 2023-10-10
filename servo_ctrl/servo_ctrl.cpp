@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
     }
 
     std::signal(SIGINT, sigIntHandler);
-    std::signal(SIGTSTP, sigIntHandler);
+    std::signal(SIGTERM, sigIntHandler);
 
     try {
         GPIO::Controller &gpio = GPIO::Controller::GetInstance();

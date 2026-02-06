@@ -1,20 +1,28 @@
 #include "rpi_gpio.hpp"
 #include "mailbox.h"
-#include <bcm_host.h>
+#include <stdexcept>
 #include <sys/mman.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <chrono>
 #include <algorithm>
+#ifdef RPI_GPIO_DISABLE_THREAD
+#include <thread>
+#include <mutex>
+#endif
 
 #define PERIPHERALS_PHYS_BASE 0x7e000000
+#define PERIPHERALS_SIZE 0x01000000
 #define BCM2835_PERIPHERALS_VIRT_BASE 0x20000000
 #define BCM2711_PERIPHERALS_VIRT_BASE 0xfe000000
 
+#ifndef RPI_GPIO_DISABLE_THREAD
 #define BCM2835_MEM_FLAG 0x0c
 #define BCM2711_MEM_FLAG 0x04
 
 #define BCM2835_PLLD_FREQ 500
 #define BCM2711_PLLD_FREQ 750
+#endif
 
 #define GPIO_FSEL_BASE_OFFSET 0x00200000
 #define GPIO_SET0_OFFSET 0x0020001c
@@ -27,6 +35,7 @@
 #define GPIO_PUD_PULL_UP 0x2
 #define GPIO_PUD_OFF 0x0
 
+#ifndef RPI_GPIO_DISABLE_THREAD
 #define CLK_PASSWORD (0x5a << 24)
 #define CLK_CTL_SRC_PLLA 0x04
 #define CLK_CTL_SRC_PLLC 0x05
@@ -87,6 +96,7 @@
 #ifndef EVENTS_LIMIT
 #define EVENTS_LIMIT 1024
 #endif
+#endif
 #define PAGE_SIZE 4096
 
 namespace GPIO {
@@ -101,6 +111,7 @@ namespace GPIO {
         uint32_t clock1;
     };
 
+#ifndef RPI_GPIO_DISABLE_THREAD
     struct PWMRegisters {
         uint32_t ctl;
         uint32_t status;
@@ -137,12 +148,14 @@ namespace GPIO {
         uint32_t debug;
     };
 
+#endif
     struct IO {
         volatile uint32_t *fnselRegister;
         uint32_t fnselBit;
         Mode mode;
         std::mutex access;
     };
+
 
     class Peripherals {
         public:
@@ -163,33 +176,55 @@ namespace GPIO {
                 return reinterpret_cast<uintptr_t>(peripherals) + offset;
             }
             static uintptr_t GetVirtualBaseAddress() {
-                return (bcm_host_get_peripheral_size() == BCM2711_PERIPHERALS_VIRT_BASE) ? BCM2711_PERIPHERALS_VIRT_BASE : bcm_host_get_peripheral_address();
+                return static_cast<uintptr_t>(Peripherals::GetAddress());
             }
+#ifndef RPI_GPIO_DISABLE_THREAD
             static float GetClockFrequency() {
-                return (GetVirtualBaseAddress() == BCM2711_PERIPHERALS_VIRT_BASE) ? BCM2711_PLLD_FREQ : BCM2835_PLLD_FREQ;
+                return (Peripherals::GetAddress() == BCM2711_PERIPHERALS_VIRT_BASE) ? BCM2711_PLLD_FREQ : BCM2835_PLLD_FREQ;
             }
+#endif
         private:
             Peripherals() {
                 int memFd;
                 if ((memFd = open("/dev/mem", O_RDWR | O_SYNC)) < 0) {
                     throw std::runtime_error("Cannot open /dev/mem file (permission denied)");
                 }
-                peripherals = mmap(nullptr, GetSize(), PROT_READ | PROT_WRITE, MAP_SHARED, memFd, GetVirtualBaseAddress());
+
+                peripherals = mmap(nullptr, GetSize(), PROT_READ | PROT_WRITE, MAP_SHARED, memFd, GetAddress());
                 close(memFd);
                 if (peripherals == MAP_FAILED) {
                     throw std::runtime_error("Cannot obtain access to peripherals (mmap error)");
                 }
             }
-            unsigned GetSize() {
-                unsigned size = bcm_host_get_peripheral_size();
-                if (size == BCM2711_PERIPHERALS_VIRT_BASE) {
-                    size = 0x01000000;
+            static uint32_t GetDTRanges(const std::string &filename, unsigned offset) {
+                uint32_t address = ~0;
+                int fd = open(filename.c_str(), O_RDONLY);
+                if (fd != -1) {
+                    uint8_t buffer[4];
+                    lseek(fd, offset, SEEK_SET);
+                    if (read(fd, buffer, sizeof(buffer)) == sizeof(buffer)) {
+                        address = buffer[0] << 24 | buffer[1] << 16 | buffer[2] << 8 | buffer[3] << 0;
+                    }
+                    close(fd);
                 }
-                return size;
+                return address;
+            }
+            static uint32_t GetAddress() {
+                uint32_t address = GetDTRanges("/proc/device-tree/soc/ranges", 4);
+                if (!address) {
+                    address = GetDTRanges("/proc/device-tree/soc/ranges", 8);
+                }
+                return (address == ~0u) ? BCM2835_PERIPHERALS_VIRT_BASE : address;
+            }
+            static uint32_t GetSize() {
+                uint32_t address = GetDTRanges("/proc/device-tree/soc/ranges", 4);
+                address = GetDTRanges("/proc/device-tree/soc/ranges", (!address) ? 12 : 8);
+                return (address == ~0u) ? PERIPHERALS_SIZE : address;
             }
             void *peripherals;
     };
 
+#ifndef RPI_GPIO_DISABLE_THREAD
     class Device {
         public:
             Device() {
@@ -308,6 +343,7 @@ namespace GPIO {
             int mBoxFd;
     };
 
+#endif
     IO &Select(unsigned number, void *io) {
         if (number >= GPIO_COUNT) {
             throw std::runtime_error("Selected IO line is not supported");
@@ -315,7 +351,11 @@ namespace GPIO {
         return reinterpret_cast<IO *>(io)[number];
     }
 
-    Controller::Controller() : enabled(true), reset(false), schedule(nullptr) {
+    Controller::Controller()
+#ifndef RPI_GPIO_DISABLE_THREAD
+        : enabled(true), reset(false), schedule(nullptr)
+#endif
+    {
         Peripherals &peripherals = Peripherals::GetInstance();
         IO *io = new IO[GPIO_COUNT];
         for (unsigned i = 0; i < GPIO_COUNT; i++) {
@@ -324,10 +364,13 @@ namespace GPIO {
             io[i].mode = Mode::Out;
         }
         this->io = reinterpret_cast<void *>(io);
+#ifndef RPI_GPIO_DISABLE_THREAD
         eventThread = std::thread(EventThread, this);
+#endif
     }
 
     Controller::~Controller() {
+#ifndef RPI_GPIO_DISABLE_THREAD
         if (enabled.exchange(false) && eventThread.joinable()) {
             eventThread.join();
         }
@@ -335,6 +378,7 @@ namespace GPIO {
         if (schedule) {
             delete schedule;
         }
+#endif
         delete [] reinterpret_cast<IO *>(io);
     }
 
@@ -398,6 +442,7 @@ namespace GPIO {
         return (bool)(*reinterpret_cast<uint32_t *>(peripherals.GetVirtualAddress(GPIO_LEVEL0_OFFSET)) & (0x01 << number));
     }
 
+#ifndef RPI_GPIO_DISABLE_THREAD
     void Controller::Reset() {
         reset.store(true);
     }
@@ -578,4 +623,5 @@ namespace GPIO {
             finally();
         } catch (...) { }
     }
+#endif
 }

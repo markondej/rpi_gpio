@@ -1,16 +1,21 @@
-FLAGS = -Wall -O3 -std=c++11
+CXX = g++
+CXXFLAGS = -Wall -O3 -std=c++11
 
-all: servo_ctrl.o mailbox.o rpi_gpio.o
-	g++ -o servo_ctrl servo_ctrl.o mailbox.o rpi_gpio.o -L/opt/vc/lib -lpthread -lbcm_host
+OBJS = servo_ctrl.o mailbox.o rpi_gpio.o
 
-mailbox.o: ../mailbox.c ../mailbox.h
-	g++ $(FLAGS) -c ../mailbox.c
+.PHONY: clean
+
+servo_ctrl: $(OBJS)
+	$(CXX) -o servo_ctrl $(OBJS) -lpthread
+
+mailbox.o: ../mailbox.c
+	$(CXX) $(CXXFLAGS) -c ../mailbox.c
 	
-rpi_gpio.o: ../rpi_gpio.cpp ../rpi_gpio.hpp
-	g++ $(FLAGS) -I/opt/vc/include -c ../rpi_gpio.cpp
+rpi_gpio.o: ../rpi_gpio.cpp
+	$(CXX) $(CXXFLAGS) -c ../rpi_gpio.cpp
 
 servo_ctrl.o: servo_ctrl.cpp
-	g++ $(FLAGS) -c servo_ctrl.cpp
+	$(CXX) $(CXXFLAGS) -c servo_ctrl.cpp
 
 clean:
 	rm *.o

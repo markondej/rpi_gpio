@@ -1,9 +1,11 @@
 #pragma once
 
 #include <vector>
+#ifndef RPI_GPIO_DISABLE_THREAD
 #include <thread>
 #include <atomic>
 #include <mutex>
+#endif
 
 #define GPIO_COUNT 28
 
@@ -59,17 +61,21 @@ namespace GPIO {
             void SetResistor(unsigned number, Resistor resistor);
             void Set(unsigned number, bool active);
             bool Get(unsigned number);
+#ifndef RPI_GPIO_DISABLE_THREAD
             std::vector<Event> GetEvents();
             void SetSchedule(std::vector<Event> events, unsigned long long interval = 0);
             void Reset();
+#endif
         private:
             Controller();
+#ifndef RPI_GPIO_DISABLE_THREAD
             static void EventThread(Controller *instance);
             std::thread eventThread;
             std::atomic_bool enabled, reset;
             std::vector<Event> events;
             std::mutex eventsAccess;
             std::atomic<std::pair<std::vector<Event>, unsigned long long> *> schedule;
+#endif
             void *io;
     };
 }

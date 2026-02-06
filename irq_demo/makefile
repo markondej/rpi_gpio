@@ -1,16 +1,21 @@
-FLAGS = -Wall -O3 -std=c++11
+CXX = g++
+CXXFLAGS = -Wall -O3 -std=c++11
 
-all: irq_demo.o mailbox.o rpi_gpio.o
-	g++ -o irq_demo irq_demo.o mailbox.o rpi_gpio.o -L/opt/vc/lib -lpthread -lbcm_host
+OBJS = irq_demo.o mailbox.o rpi_gpio.o
 
-mailbox.o: ../mailbox.c ../mailbox.h
-	g++ $(FLAGS) -c ../mailbox.c
+.PHONY: clean
+
+irq_demo: $(OBJS)
+	$(CXX) -o irq_demo $(OBJS) -lpthread
+
+mailbox.o: ../mailbox.c
+	$(CXX) $(CXXFLAGS) -c ../mailbox.c
 	
-rpi_gpio.o: ../rpi_gpio.cpp ../rpi_gpio.hpp
-	g++ $(FLAGS) -I/opt/vc/include -c ../rpi_gpio.cpp
+rpi_gpio.o: ../rpi_gpio.cpp
+	$(CXX) $(CXXFLAGS) -c ../rpi_gpio.cpp
 
 irq_demo.o: irq.cpp
-	g++ $(FLAGS) -c irq.cpp -o irq_demo.o
+	$(CXX) $(CXXFLAGS) -c irq.cpp -o irq_demo.o
 
 clean:
 	rm *.o

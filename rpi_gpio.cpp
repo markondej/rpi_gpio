@@ -371,7 +371,7 @@ namespace GPIO {
 
     Controller::~Controller() {
 #ifndef RPI_GPIO_DISABLE_THREAD
-        if (enabled.exchange(false) && eventThread.joinable()) {
+        if (eventThread.joinable() && enabled.exchange(false)) {
             eventThread.join();
         }
         auto schedule = this->schedule.load(std::memory_order_consume);

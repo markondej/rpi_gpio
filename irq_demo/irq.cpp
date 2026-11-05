@@ -11,7 +11,7 @@ std::atomic_bool stop(false);
 
 void sigIntHandler(int sigNum)
 {
-    stop = true;
+    stop.store(true);
 }
 
 void IRQThread(unsigned pin, bool high, const std::function<void()> &callback) {
@@ -27,7 +27,7 @@ void IRQThread(unsigned pin, bool high, const std::function<void()> &callback) {
         }
     } catch (std::exception &error) {
         std::cout << error.what() << std::endl;
-        stop = true;
+        stop.store(true);
     }
 }
 
@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
     std::thread irqThread(IRQThread, pin, true, [&]() {
         std::cout << "Rising edge detected" << std::endl;
     });
-    while (!stop) {
+    while (!stop.load()) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     irqThread.join();

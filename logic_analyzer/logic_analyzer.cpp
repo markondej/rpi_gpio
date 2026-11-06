@@ -2,13 +2,14 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <atomic>
 #include <csignal>
 
-bool stop = false;
+std::atomic<bool> stop(false);
 
 void sigIntHandler(int sigNum)
 {
-    stop = true;
+    stop.store(true);
 }
 
 int main(int argc, char** argv) {
@@ -17,7 +18,7 @@ int main(int argc, char** argv) {
 
     try {
         GPIO::Controller &gpio = GPIO::Controller::GetInstance();
-        while (!stop) {
+        while (!stop.load()) {
             for (auto event : gpio.GetEvents()) {
                 std::cout << "GPIO " << event.number << ", time: " << event.time << " us, state: " << (event.high ? "HIGH" : "LOW") << std::endl;
             }

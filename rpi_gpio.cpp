@@ -536,7 +536,7 @@ namespace GPIO {
                 }
             };
             auto finally = [&]() {
-                dmaCb[(cbOffset < 4 * DMA_BUFFER_SIZE) ? cbOffset : 0].nextCbAddress = 0x00000000;
+                dmaCb[cbOffset - 1].nextCbAddress = 0x00000000;
                 while (dma.GetControllBlockAddress() != 0x00000000) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
